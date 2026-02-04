@@ -92,10 +92,7 @@ class FileLoader:
             try:
                 self.logger.info(f"Loading file: {file.name}")
 
-                if file.suffix.lower() == ".csv":
-                    df = pd.read_csv(file)
-                
-                elif file.suffix.lower() == ".xlsx":
+                if file.suffix.lower() == ".xlsx":
                     df = pd.read_excel(file)
                 
                 else:
@@ -106,7 +103,7 @@ class FileLoader:
                     self.logger.warning(f"File is empty: {file.name}")
                 
                 # Adding metadata
-                df["souce_file"] = file.name
+                df["source_file"] = file.name
                 df["load_time"] = datetime.now(timezone.utc)
 
                 loaded_dfs.append(df)
@@ -393,7 +390,7 @@ class FileProcessor:
 
         final_rejected = (
             pd.concat(rejected_frames, ignore_index=True)
-            if rejected_df
+            if rejected_frames
             else pd.DataFrame() # This avoids : ValueError: No objects to concatenate
         )
 
