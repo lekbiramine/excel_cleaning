@@ -225,7 +225,7 @@ class DataCleaner:
         self.logger.info(f"Normalized columns: {df.columns.tolist()}")
 
         # Add rejection reason column
-        df["_rejection_reason"] = ""
+        df["rejection_reason"] = ""
 
         # Apply rules column by column
         for column, rules in self.rules.items():
@@ -244,7 +244,7 @@ class DataCleaner:
                     series.astype(str).str.strip() == ""
                 ) # this means -> When null_mask is empty
 
-                df.loc[null_mask, "_rejection_reason"] += f"{column}_null_not_allowed;"
+                df.loc[null_mask, "rejection_reason"] += f"{column}_null_not_allowed;"
                 # null_mask there is the index
 
             # ---------- AMOUNT RULES ----------
@@ -255,11 +255,11 @@ class DataCleaner:
 
                 if "min" in rules:
                     min_mask = series < rules["min"]
-                    df.loc[min_mask, "_rejection_reason"] += f"{column}_below_min;"
+                    df.loc[min_mask, "rejection_reason"] += f"{column}_below_min;"
                 
                 if "max" in rules:
                     max_mask = series > rules["max"]
-                    df.loc[max_mask, "_rejection_reason"] += f"{column}_above_max;"
+                    df.loc[max_mask, "rejection_reason"] += f"{column}_above_max;"
             
             # ---------- DATE RULES ----------
             if column == "date":
@@ -268,7 +268,7 @@ class DataCleaner:
 
                 if not rules.get("allow_future", True):
                     future_mask = series > pd.Timestamp.today()
-                    df.loc[future_mask, "_rejection_reason"] += f"{column}_future_not_allowed;"
+                    df.loc[future_mask, "rejection_reason"] += f"{column}_future_not_allowed;"
             
             # ---------- ALLOWED VALUES ----------
             if column == "status":
@@ -276,14 +276,14 @@ class DataCleaner:
                 allowed = set(rules["allowed_values"])
 
                 invalid_mask = ~series.isin(allowed)
-                df.loc[invalid_mask, "_rejection_reason"] += f"{column}_invalid_value;"
+                df.loc[invalid_mask, "rejection_reason"] += f"{column}_invalid_value;"
         
         # Split clean vs rejected
-        rejected_df = df[df["_rejection_reason"] != ""].copy()
-        cleaned_df = df[df["_rejection_reason"] == ""].copy()
+        rejected_df = df[df["rejection_reason"] != ""].copy()
+        cleaned_df = df[df["rejection_reason"] == ""].copy()
 
         # Drop helper column from clean data
-        cleaned_df.drop(columns=["_rejection_reason"], inplace=True)
+        cleaned_df.drop(columns=["rejection_reason"], inplace=True)
 
         self.logger.info(
             f"Validation finished | Clean: {len(cleaned_df)} | Rejected: {len(rejected_df)}"
@@ -455,4 +455,94 @@ class OutputWriter:
             self.logger.info(f"Rejected DataFrame is empty - nothing written")
         
         return cleaned_path, rejected_path
-    
+
+class ReportWriter:
+    """
+    Generates an Excel report summarizing cleaned and rejected data.
+
+    The report includes:
+    - Overall processing summary
+    - Rejection counts by reason
+    """
+
+    def __init__(
+            self,
+            logger: logging.Logger,
+            report_dir: Path
+    ) -> None:
+        self.logger = logger
+        self.report_dir = report_dir
+
+    def generate_report(
+            self,
+            cleaned_df: pd.DataFrame,
+            rejected_df: pd.DataFrame
+    ) -> Path | None:
+        """
+        Generate an Excel report with summary information.
+
+        Returns:
+            Path to the generated report file, or None if no data exists.
+        """
+
+        if cleaned_df.empty and rejected_df.empty:
+            self.logger.warning("No data available for report generation")
+            return None
+        
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        report_path = self.report_dir / f"report_{timestamp}.xlsx"
+
+        # ---- Summary sheet ----
+        summary_df = pd.DataFrame(
+            {
+                "metric": [
+                    "processed_at",
+                    "total_rows",
+                    "cleaned_rows",
+                    "rejected_rows"
+                ],
+                "value": [
+                    datetime.now(timezone.utc).isoformat(),
+                    len(cleaned_df) + len(rejected_df),
+                    len(cleaned_df),
+                    len(rejected_df)
+                ]
+            }
+
+        )
+
+        # ---- Rejection by reason ----
+        if not rejected_df.empty and "rejection_reason" in rejected_df.columns:
+            rejection_by_reason = (
+                rejected_df["rejection_reason"]
+                .value_counts()
+                .reset_index()
+            )
+            rejection_by_reason.columns = ["rejection_reason", "count"]
+        
+        else:
+            rejection_by_reason = pd.DataFrame(
+                columns=["rejection_reason", "count"]
+            )
+        
+        # ---- write excel report ----
+        with pd.ExcelWriter(
+            report_path,
+            engine="openpyxl",
+            date_format="YYYY-MM-DD"
+        ) as writer:
+            
+            summary_df.to_excel(
+                writer,
+                index=False,
+                sheet_name="summary"
+            )
+
+            rejection_by_reason.to_excel(
+                writer,
+                index=False,
+                sheet_name="rejection_by_reason",
+            )
+        
+        self.logger.info(f"Report generated: {report_path}")
+        return report_path
