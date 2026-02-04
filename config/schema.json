@@ -1,0 +1,28 @@
+{
+  "required_columns": [
+    "record_id",
+    "customer",
+    "amount",
+    "date",
+    "status"
+  ],
+  "aliases": {
+    "id": "record_id",
+    "order_id": "record_id",
+    "orderid": "record_id",
+
+    "client": "customer",
+    "customer_name": "customer",
+    "buyer": "customer",
+
+    "total": "amount",
+    "total_amount": "amount",
+    "amount_usd": "amount",
+
+    "order_date": "date",
+    "created_at": "date",
+
+    "state": "status",
+    "order_status": "status"
+  }
+}
