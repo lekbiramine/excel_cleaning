@@ -2,6 +2,11 @@ import pandas as pd
 import logging
 import json
 import yaml
+import smtplib
+import ssl
+import os
+from dotenv import load_dotenv
+from email.message import EmailMessage
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -542,4 +547,65 @@ class ReportWriter:
             )
         
         self.logger.info(f"Report generated: {report_path}")
-        return report_path
+        return report_path 
+
+class EmailSender:
+    """
+    sends pipeline output files via email using SMTP with SSL
+    """
+
+    def __init__(self, logger: logging.Logger) -> None:
+        load_dotenv()
+
+        self.logger = logger
+        self.smtp_host = os.getenv("SMTP_HOST")
+        self.smtp_port = int(os.getenv("SMTP_PORT"))
+        self.sender_email = os.getenv("SENDER_EMAIL")
+        self.sender_password = os.getenv("SENDER_PASSWORD")
+        self.receiver_email = os.getenv("RECEIVER_EMAIL")
+
+    def send(
+            self,
+            attachments: list[Path],
+            subject: str,
+            body: str
+    ) -> None:
+        """
+        Send an email with file attachments.
+        """
+
+        msg = EmailMessage()
+        msg["From"] = self.sender_email
+        msg["To"] = self.receiver_email
+        msg["Subject"] = subject
+        msg.set_content(body)
+
+        for path in attachments:
+            if path is None or not path.exists():
+                continue
+
+            with open(path, "rb") as f:
+                file_data = f.read()
+            
+            msg.add_attachment(
+                file_data,
+                maintype="application",
+                subtype="octet-stream",
+                filename=path.name
+            )
+        
+        context = ssl.create_default_context()
+
+        try:
+            with smtplib.SMTP_SSL(
+                self.smtp_host,
+                self.smtp_port,
+                context=context
+            ) as server:
+                server.login(self.sender_email, self.sender_password)
+                server.send_message(msg)
+            
+            self.logger.info("Email sent sucessfully")
+        
+        except Exception as e:
+            self.logger.error(f"Failed to send email: {e}")
