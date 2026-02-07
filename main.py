@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 SUPPORTED_EXTENSIONS = {".csv", ".xlsx"}
 LOG_NAME = "excel_cleaning_pipeline"
 
-class AppEnviroment:
+class AppEnvironment:
     """
     Handles application-wide setup:
     - Base paths
@@ -79,7 +79,7 @@ class AppEnviroment:
 
 class FileLoader:
     """
-    Loads CSV and Excel files safely.
+    Loads Excel files safely.
     Adds metadata for traceability.
     """
 
@@ -440,6 +440,7 @@ class OutputWriter:
 
         # Write cleaned data
         if not cleaned_df.empty:
+
             cleaned_path = self.cleaned_dir / f"cleaned_{timestamp}.xlsx"
             cleaned_df.to_excel(cleaned_path, index=False, engine="openpyxl")
             self.logger.info(f"Cleaned file written: {cleaned_path}")
@@ -449,6 +450,7 @@ class OutputWriter:
         
         # Write rejected data
         if not rejected_df.empty:
+
             rejected_path = self.rejected_dir / f"rejected_{timestamp}.xlsx"
             rejected_df.to_excel(rejected_path, index=False, engine="openpyxl")
             self.logger.info(f"Rejected file written: {rejected_path}")
@@ -504,7 +506,7 @@ class ReportWriter:
                     "rejected_rows"
                 ],
                 "value": [
-                    datetime.now(timezone.utc).isoformat(),
+                    datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
                     len(cleaned_df) + len(rejected_df),
                     len(cleaned_df),
                     len(rejected_df)
@@ -515,11 +517,13 @@ class ReportWriter:
 
         # ---- Rejection by reason ----
         if not rejected_df.empty and "rejection_reason" in rejected_df.columns:
+
             rejection_by_reason = (
                 rejected_df["rejection_reason"]
                 .value_counts()
                 .reset_index()
             )
+
             rejection_by_reason.columns = ["rejection_reason", "count"]
         
         else:
@@ -602,10 +606,98 @@ class EmailSender:
                 self.smtp_port,
                 context=context
             ) as server:
+                
                 server.login(self.sender_email, self.sender_password)
                 server.send_message(msg)
             
-            self.logger.info("Email sent sucessfully")
+            self.logger.info("Email sent successfully")
         
         except Exception as e:
             self.logger.error(f"Failed to send email: {e}")
+
+def main() -> None:
+
+    # ---- environment & logging ----
+    env = AppEnvironment()
+    env.setup()
+    logger = env.logger
+    logger.info("Pipeline started")
+
+    # ---- initialize components ----
+    schema_aligner = SchemaAligner(
+        logger=logger,
+        schema_path=env.schema_path
+    )
+
+    data_cleaner = DataCleaner(
+        logger=logger,
+        rules_path=env.rules_path
+    )
+
+    file_loader = FileLoader(
+        logger=logger
+    )
+
+    file_processor = FileProcessor(
+        logger=logger,
+        schema_aligner=schema_aligner,
+        data_cleaner=data_cleaner,
+        input_dir=env.input_dir
+    )
+
+    output_writer = OutputWriter(
+        logger=logger,
+        cleaned_dir=env.cleaned_dir,
+        rejected_dir=env.rejected_dir
+    )
+
+    report_writer = ReportWriter(
+        logger=logger,
+        report_dir=env.reports_dir
+    )
+
+    email_sender = EmailSender(logger)
+
+    # ---- load files ----
+    dfs = file_loader.load_files(list(env.input_dir.glob("*.xlsx")))
+    if not dfs:
+        logger.warning("No input files found -- pipeline stopped")
+        return
+    
+    # ---- process files ----
+    cleaned_df, rejected_df = file_processor.process_files()
+
+    # ---- write outputs ----
+    cleaned_path, rejected_path = output_writer.write_outputs(
+        cleaned_df,
+        rejected_df
+    )
+
+    # ---- generate report ----
+    report_path = report_writer.generate_report(
+        cleaned_df,
+        rejected_df
+    )
+
+    # ---- send email ----
+    subject = "Excel Cleaning Pipeline Results"
+    body = (
+        "Hello,\n\n"
+        "The Excel cleaning pipeline has completed successfully.\n\n"
+        "Attached files:\n"
+        "- Cleaned dataset\n"
+        "- Rejected records\n"
+        "- Processing report\n\n"
+        "Regards,"
+    )
+
+    email_sender.send(
+        attachments=[cleaned_path, rejected_path, report_path],
+        subject=subject,
+        body=body
+    )
+
+    logger.info("Pipeline finished successfully")
+
+if __name__ == '__main__':
+    main()
