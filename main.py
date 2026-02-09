@@ -109,7 +109,7 @@ class FileLoader:
                 
                 # Adding metadata
                 df["source_file"] = file.name
-                df["load_time"] = datetime.now(timezone.utc)
+                df["load_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
                 loaded_dfs.append(df)
                 self.logger.info(f"Loaded {len(df)} rows from {file.name}")
@@ -367,7 +367,7 @@ class FileProcessor:
 
             # Traceability
             df["source_file"] = file_path.name
-            df["processed_at"] = datetime.now(timezone.utc)
+            df["processed_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
             # Schema alignment
             df = self.schema_aligner.align(df)
@@ -506,7 +506,7 @@ class ReportWriter:
                     "rejected_rows"
                 ],
                 "value": [
-                    datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     len(cleaned_df) + len(rejected_df),
                     len(cleaned_df),
                     len(rejected_df)
@@ -572,7 +572,8 @@ class EmailSender:
             self,
             attachments: list[Path],
             subject: str,
-            body: str
+            body: str,
+            is_on: bool
     ) -> None:
         """
         Send an email with file attachments.
@@ -584,36 +585,41 @@ class EmailSender:
         msg["Subject"] = subject
         msg.set_content(body)
 
-        for path in attachments:
-            if path is None or not path.exists():
-                continue
+        if is_on:
 
-            with open(path, "rb") as f:
-                file_data = f.read()
-            
-            msg.add_attachment(
-                file_data,
-                maintype="application",
-                subtype="octet-stream",
-                filename=path.name
-            )
-        
-        context = ssl.create_default_context()
+            for path in attachments:
+                if path is None or not path.exists():
+                    continue
 
-        try:
-            with smtplib.SMTP_SSL(
-                self.smtp_host,
-                self.smtp_port,
-                context=context
-            ) as server:
+                with open(path, "rb") as f:
+                    file_data = f.read()
                 
-                server.login(self.sender_email, self.sender_password)
-                server.send_message(msg)
+                msg.add_attachment(
+                    file_data,
+                    maintype="application",
+                    subtype="octet-stream",
+                    filename=path.name
+                )
             
-            self.logger.info("Email sent successfully")
+            context = ssl.create_default_context()
+
+            try:
+                with smtplib.SMTP_SSL(
+                    self.smtp_host,
+                    self.smtp_port,
+                    context=context
+                ) as server:
+                    
+                    server.login(self.sender_email, self.sender_password)
+                    server.send_message(msg)
+                
+                self.logger.info("Email sent successfully")
+            
+            except Exception as e:
+                self.logger.error(f"Failed to send email: {e}")
         
-        except Exception as e:
-            self.logger.error(f"Failed to send email: {e}")
+        else:
+            self.logger.error(f"Email not sent")
 
 def main() -> None:
 
@@ -694,7 +700,8 @@ def main() -> None:
     email_sender.send(
         attachments=[cleaned_path, rejected_path, report_path],
         subject=subject,
-        body=body
+        body=body,
+        is_on=False
     )
 
     logger.info("Pipeline finished successfully")

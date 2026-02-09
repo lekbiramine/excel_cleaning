@@ -4,7 +4,9 @@
     "customer",
     "amount",
     "date",
-    "status"
+    "status",
+    "source_file",
+    "processed_at"
   ],
   "aliases": {
     "id": "record_id",
@@ -23,6 +25,8 @@
     "created_at": "date",
 
     "state": "status",
-    "order_status": "status"
+    "order_status": "status",
+
+    "load_time": "processed_at"
   }
 }
