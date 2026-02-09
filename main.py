@@ -686,7 +686,7 @@ def main() -> None:
     )
 
     # ---- send email ----
-    subject = "Excel Cleaning Pipeline Results"
+    subject = "Ready Excel Cleaned for MR.LEKBIR"
     body = (
         "Hello,\n\n"
         "The Excel cleaning pipeline has completed successfully.\n\n"
@@ -701,7 +701,7 @@ def main() -> None:
         attachments=[cleaned_path, rejected_path, report_path],
         subject=subject,
         body=body,
-        is_on=False
+        is_on=True
     )
 
     logger.info("Pipeline finished successfully")
