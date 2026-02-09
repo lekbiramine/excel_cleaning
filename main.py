@@ -171,7 +171,9 @@ class SchemaAligner:
                 self.logger.info(f"Added missing column: {col}")
         
         # Reorder columns
-        df = df[self.REQUIRED_COLUMNS]
+        keep_cols = self.REQUIRED_COLUMNS + [c for c in df.columns if c not in self.REQUIRED_COLUMNS]
+        df = df[keep_cols]
+
 
         self.logger.info("Schema alignment completed.")
         return df
@@ -310,12 +312,14 @@ class FileProcessor:
             input_dir: Path,
             schema_aligner: SchemaAligner,
             data_cleaner: DataCleaner,
+            file_loader: FileLoader
     ) -> None:
         
         self.logger = logger
         self.input_dir = input_dir
         self.schema_aligner = schema_aligner
         self.data_cleaner = data_cleaner
+        self.file_loader = file_loader
     
     def _discover_files(self) -> list[Path]:
         """
@@ -351,23 +355,14 @@ class FileProcessor:
 
         files = self._discover_files()
 
-        for file_path in files:
-            self.logger.info(f"Processing file: {file_path.name}")
+        dfs = self.file_loader.load_files(files)
 
-            try:
-                df = pd.read_excel(file_path)
-
-            except Exception as e:
-                self.logger.error(f"Failed to read {file_path.name}: {e}")
-                continue
-
-            if df.empty:
-                self.logger.warning(f"file is empty {file_path.name}")
-                continue
-
-            # Traceability
-            df["source_file"] = file_path.name
-            df["processed_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        for df in dfs:
+            self.logger.info(
+                f"Processing file: {df['source_file'].iloc[0]}"
+                if 'source_file' in df.columns and not df.empty
+                else "Processing unnamed DataFrame"
+            )
 
             # Schema alignment
             df = self.schema_aligner.align(df)
@@ -382,7 +377,7 @@ class FileProcessor:
                 rejected_frames.append(rejected_df)
             
             self.logger.info(
-                f"{file_path.name} | "
+                f"Processed | "
                 f"cleaned: {len(cleaned_df)} | "
                 f"rejected: {len(rejected_df)} | "
             )
@@ -648,7 +643,8 @@ def main() -> None:
         logger=logger,
         schema_aligner=schema_aligner,
         data_cleaner=data_cleaner,
-        input_dir=env.input_dir
+        input_dir=env.input_dir,
+        file_loader=file_loader
     )
 
     output_writer = OutputWriter(
@@ -664,12 +660,6 @@ def main() -> None:
 
     email_sender = EmailSender(logger)
 
-    # ---- load files ----
-    dfs = file_loader.load_files(list(env.input_dir.glob("*.xlsx")))
-    if not dfs:
-        logger.warning("No input files found -- pipeline stopped")
-        return
-    
     # ---- process files ----
     cleaned_df, rejected_df = file_processor.process_files()
 
