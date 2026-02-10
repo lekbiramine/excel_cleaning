@@ -1,0 +1,22 @@
+id:
+  allow_null: false
+
+email:
+  allow_null: false
+
+amount:
+  allow_null: false
+  min: 0
+  max: 100000
+
+date:
+  allow_null: false
+  allow_future: false
+
+status:
+  allow_null: false
+  allowed_values:
+    - completed
+    - processing
+    - cancelled
+    - shipped

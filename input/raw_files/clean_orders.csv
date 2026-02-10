@@ -1,4 +1,0 @@
-id,customer,amount,date,status
-1001,John Smith,250,2024-12-01,paid
-1002,Sarah Connor,120,2024-12-03,pending
-1003,Bruce Wayne,5000,2024-11-20,paid

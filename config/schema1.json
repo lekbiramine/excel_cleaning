@@ -1,0 +1,21 @@
+{
+  "required_columns": [
+    "id",
+    "email",
+    "date",
+    "amount",
+    "status",
+    "notes",
+    "source_file",
+    "processed_at"
+  ],
+  "aliases": {
+    "order_id": "id",
+
+    "customer_email": "email",
+
+    "order_date": "date",
+
+    "load_time": "processed_at"
+  }
+}

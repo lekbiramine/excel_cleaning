@@ -36,8 +36,8 @@ class AppEnvironment:
 
         # Config
         self.config_dir = self.base_dir / "config"
-        self.schema_path = self.config_dir / "schema.json"
-        self.rules_path = self.config_dir / "rules.yaml"
+        self.schema_path = self.config_dir / "schema1.json"
+        self.rules_path = self.config_dir / "rules1.yaml"
 
         self.logger: logging.Logger | None = None
 
@@ -157,7 +157,7 @@ class SchemaAligner:
         self.logger.info("Starting schema alignment.")
 
         # Normalizing column names
-        df.columns = [c.strip().lower() for c in df.columns]
+        df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
         self.logger.info(f"Normalized columns: {df.columns.tolist()}")
 
         # Rename aliases
@@ -231,6 +231,26 @@ class DataCleaner:
         # Add rejection reason column
         df["rejection_reason"] = ""
 
+        if "status" in df.columns:
+            df["status"] = (
+                df["status"]
+                .astype(str)
+                .str.lower()
+                .str.strip()
+                .replace({
+                    "completed": "completed",
+                    "complted": "completed",
+                    "Completed": "completed"
+                })
+            )
+
+        if "amount" in df.columns:
+            df["amount"] = (
+                df["amount"]
+                .astype(str)
+                .str.replace(r"[^\d\.-]", "", regex=True)
+            )
+
         # Apply rules column by column
         for column, rules in self.rules.items():
             rules: dict[str, object]
@@ -254,6 +274,8 @@ class DataCleaner:
             # ---------- AMOUNT RULES ----------
             if column == "amount":
 
+                series = column.replace("$", "").replace("EUR", "").strip()
+
                 df[column] = pd.to_numeric(series, errors="coerce")
                 series = df[column]
 
@@ -271,7 +293,8 @@ class DataCleaner:
                 series = df[column]
 
                 if not rules.get("allow_future", True):
-                    future_mask = series > pd.Timestamp.today()
+                    now = pd.Timestamp.today()
+                    future_mask = series > now
                     df.loc[future_mask, "rejection_reason"] += f"{column}_future_not_allowed;"
             
             # ---------- ALLOWED VALUES ----------
@@ -281,13 +304,25 @@ class DataCleaner:
 
                 invalid_mask = ~series.isin(allowed)
                 df.loc[invalid_mask, "rejection_reason"] += f"{column}_invalid_value;"
-        
+
+            # Notes
+            if column == "notes":
+                
+                series = series.astype(str).str.lower().str.strip()
+                for row in series:
+                    if row.empty:
+                        series[row] = None
         # Split clean vs rejected
         rejected_df = df[df["rejection_reason"] != ""].copy()
         cleaned_df = df[df["rejection_reason"] == ""].copy()
 
         # Drop helper column from clean data
         cleaned_df.drop(columns=["rejection_reason"], inplace=True)
+
+        if (df["rejection_reason"] != "").all():
+            self.logger.critical(
+                "All rows rejected - validation rules too strict or misordered"
+            )
 
         self.logger.info(
             f"Validation finished | Clean: {len(cleaned_df)} | Rejected: {len(rejected_df)}"
@@ -558,14 +593,14 @@ class EmailSender:
 
         self.logger = logger
         self.smtp_host = os.getenv("SMTP_HOST")
-        self.smtp_port = int(os.getenv("SMTP_PORT"))
+        self.smtp_port = int(os.getenv("SMTP_PORT", "465"))
         self.sender_email = os.getenv("SENDER_EMAIL")
         self.sender_password = os.getenv("SENDER_PASSWORD")
         self.receiver_email = os.getenv("RECEIVER_EMAIL")
 
     def send(
             self,
-            attachments: list[Path],
+            attachments: list[Path | None],
             subject: str,
             body: str,
             is_on: bool
@@ -574,47 +609,55 @@ class EmailSender:
         Send an email with file attachments.
         """
 
+        if not is_on:
+            self.logger.info("Email sending is disabled")
+            return
+        
+        valid_attachments = [
+            p for p in attachments
+            if p is not None and p.exists()
+        ]
+
+        if not valid_attachments:
+            self.logger.warning("No valid attachments found. Email not sent.")
+            return
+
         msg = EmailMessage()
         msg["From"] = self.sender_email
         msg["To"] = self.receiver_email
         msg["Subject"] = subject
         msg.set_content(body)
 
-        if is_on:
+        for path in valid_attachments:
+            if path is None or not path.exists():
+                continue
 
-            for path in attachments:
-                if path is None or not path.exists():
-                    continue
-
-                with open(path, "rb") as f:
-                    file_data = f.read()
-                
-                msg.add_attachment(
-                    file_data,
-                    maintype="application",
-                    subtype="octet-stream",
-                    filename=path.name
-                )
+            with open(path, "rb") as f:
+                file_data = f.read()
             
-            context = ssl.create_default_context()
-
-            try:
-                with smtplib.SMTP_SSL(
-                    self.smtp_host,
-                    self.smtp_port,
-                    context=context
-                ) as server:
-                    
-                    server.login(self.sender_email, self.sender_password)
-                    server.send_message(msg)
-                
-                self.logger.info("Email sent successfully")
-            
-            except Exception as e:
-                self.logger.error(f"Failed to send email: {e}")
+            msg.add_attachment(
+                file_data,
+                maintype="application",
+                subtype="octet-stream",
+                filename=path.name
+            )
         
-        else:
-            self.logger.error(f"Email not sent")
+        context = ssl.create_default_context()
+
+        try:
+            with smtplib.SMTP_SSL(
+                self.smtp_host,
+                self.smtp_port,
+                context=context
+            ) as server:
+                
+                server.login(self.sender_email, self.sender_password)
+                server.send_message(msg)
+            
+            self.logger.info(f"Email sent successfully with {len(valid_attachments)} attachment(s)")
+        
+        except Exception as e:
+            self.logger.error(f"Failed to send email: {e}")
 
 def main() -> None:
 
