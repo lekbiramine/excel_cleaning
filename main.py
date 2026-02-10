@@ -9,6 +9,11 @@ from dotenv import load_dotenv
 from email.message import EmailMessage
 from pathlib import Path
 from datetime import datetime, timezone
+from diagnostics.quality_report import (
+    top_rejection_reasons,
+    null_ratios,
+    duplicate_rate
+)
 
 SUPPORTED_EXTENSIONS = {".csv", ".xlsx"}
 LOG_NAME = "excel_cleaning_pipeline"
@@ -274,7 +279,13 @@ class DataCleaner:
             # ---------- AMOUNT RULES ----------
             if column == "amount":
 
-                series = column.replace("$", "").replace("EUR", "").strip()
+                series = (
+                    df[column]
+                    .astype(str)
+                    .str.replace("$", "", regex=False)
+                    .str.replace("EUR", "", regex=False)
+                    .str.strip()
+                )
 
                 df[column] = pd.to_numeric(series, errors="coerce")
                 series = df[column]
@@ -734,8 +745,17 @@ def main() -> None:
         attachments=[cleaned_path, rejected_path, report_path],
         subject=subject,
         body=body,
-        is_on=True
+        is_on=False
     )
+
+    top_reasons = top_rejection_reasons(rejected_df, logger=logger)
+    nulls = null_ratios(cleaned_df, logger=logger)
+    dup_rate = duplicate_rate(cleaned_df, logger=logger)
+    
+    logger.info(f"Top rejection reasons:\n{top_reasons}")
+    logger.info(f"Null ratios:\n{nulls}")
+    logger.info(f"Duplicate rate: {dup_rate:.2%}")
+
 
     logger.info("Pipeline finished successfully")
 
