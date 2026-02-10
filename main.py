@@ -171,8 +171,8 @@ class SchemaAligner:
                 self.logger.info(f"Added missing column: {col}")
         
         # Reorder columns
-        keep_cols = self.REQUIRED_COLUMNS + [c for c in df.columns if c not in self.REQUIRED_COLUMNS]
-        df = df[keep_cols]
+        existing = [c for c in self.REQUIRED_COLUMNS if c in df.columns]
+        df = df[existing + [c for c in df.columns if c not in existing]]
 
 
         self.logger.info("Schema alignment completed.")
